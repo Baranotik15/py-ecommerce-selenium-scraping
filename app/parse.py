@@ -1,5 +1,4 @@
 import csv
-
 from dataclasses import dataclass, fields, astuple
 from urllib.parse import urljoin
 
@@ -14,6 +13,8 @@ from selenium.webdriver.chrome.webdriver import WebDriver
 from selenium.webdriver.common.action_chains import ActionChains
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as ec
+
+from webdriver_manager.chrome import ChromeDriverManager
 
 BASE_URL = "https://webscraper.io/"
 HOME_URL = urljoin(BASE_URL, "test-sites/e-commerce/more/")
@@ -37,6 +38,18 @@ def set_driver(new_driver: WebDriver) -> None:
     _driver = new_driver
 
 
+def initialize_driver() -> None:
+    chrome_options = Options()
+    chrome_options.add_argument("--start-maximized")  # Настройка окна
+
+    driver = webdriver.Chrome(
+        service=Service(ChromeDriverManager().install()),
+        options=chrome_options
+    )
+
+    set_driver(driver)
+
+
 @dataclass
 class Product:
     title: str
@@ -44,6 +57,18 @@ class Product:
     price: float
     rating: int
     num_of_reviews: int
+
+    def __eq__(self, other: object) -> bool:
+        if not isinstance(other, Product):
+            return False
+
+        return (
+            self.title == other.title
+            and self.description == other.description
+            and self.price == other.price
+            and self.rating == other.rating
+            and self.num_of_reviews == other.num_of_reviews
+        )
 
 
 PRODUCT_FIELDS = [field.name for field in fields(Product)]
@@ -105,29 +130,17 @@ def write_products_to_csv(name: str, products: [Product]) -> None:
 
 
 def get_all_products() -> None:
-    chrome_options = Options()
-    chrome_options.add_argument("--start-maximized")
+    initialize_driver()
 
-    with webdriver.Chrome(service=Service(), options=chrome_options) as driver:
-        set_driver(driver)  # Передаем драйвер в систему
-        # Single page parsing
-        write_products_to_csv("home.csv", get_products(HOME_URL))
-        write_products_to_csv("computers.csv", get_products(COMPUTER_URL))
-        write_products_to_csv("phones.csv", get_products(PHONES_URL))
+    # Single page parsing
+    write_products_to_csv("home.csv", get_products(HOME_URL))
+    write_products_to_csv("computers.csv", get_products(COMPUTER_URL))
+    write_products_to_csv("phones.csv", get_products(PHONES_URL))
 
-        # Multi page parsing
-        write_products_to_csv(
-            "touch.csv",
-            get_products_multi_page(TOUCH_URL)
-        )
-        write_products_to_csv(
-            "tablets.csv",
-            get_products_multi_page(TABLETS_URL)
-        )
-        write_products_to_csv(
-            "laptops.csv",
-            get_products_multi_page(LAPTOP_URL)
-        )
+    # Multi page parsing
+    write_products_to_csv("touch.csv", get_products_multi_page(TOUCH_URL))
+    write_products_to_csv("tablets.csv", get_products_multi_page(TABLETS_URL))
+    write_products_to_csv("laptops.csv", get_products_multi_page(LAPTOP_URL))
 
 
 if __name__ == "__main__":
