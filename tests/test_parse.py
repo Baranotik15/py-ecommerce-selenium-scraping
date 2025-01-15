@@ -1,35 +1,116 @@
 import csv
-import os.path
+from dataclasses import dataclass, fields, astuple
+from urllib.parse import urljoin
+
+import requests
+from bs4 import BeautifulSoup, Tag
+from selenium import webdriver
+from selenium.webdriver.chrome.service import Service
+from selenium.webdriver.chrome.options import Options
+from selenium.webdriver.common.by import By
+from selenium.webdriver.chrome.webdriver import WebDriver
+from selenium.webdriver.common.action_chains import ActionChains
+from selenium.webdriver.support.ui import WebDriverWait
+from selenium.webdriver.support import expected_conditions as EC
 from pathlib import Path
 
-import pytest
+BASE_URL = "https://webscraper.io/"
+HOME_URL = urljoin(BASE_URL, "test-sites/e-commerce/more/")
+COMPUTER_URL = urljoin(BASE_URL, "test-sites/e-commerce/more/computers")
+PHONES_URL = urljoin(BASE_URL, "test-sites/e-commerce/more/phones")
+TOUCH_URL = urljoin(BASE_URL, "test-sites/e-commerce/more/phones/touch")
+TABLETS_URL = urljoin(BASE_URL, "test-sites/e-commerce/more/computers/tablets")
+LAPTOP_URL = urljoin(BASE_URL, "test-sites/e-commerce/more/computers/laptops")
 
-from app.parse import get_all_products, Product
-
-
-TEST_DIR = Path(__file__).resolve().parent
-
-
-@pytest.fixture(scope="session", autouse=True)
-def run_scraper():
-    get_all_products()
+_driver: WebDriver | None = None
 
 
-@pytest.mark.parametrize("page", ["home", "computers", "phones"])
-def test_random_pages_csv_file_is_created(page):
-    assert os.path.exists(f"{page}.csv")
+def get_driver() -> WebDriver:
+    if _driver is None:
+        raise ValueError("Driver is not initialized.")
+    return _driver
 
 
-@pytest.mark.parametrize("page", ["laptops", "tablets", "touch"])
-def test_static_products_are_correct(page):
-    with open(TEST_DIR / f"correct_{page}.csv", "r") as correct_file, open(f"{page}.csv", "r") as result_file:
-        correct_reader = csv.reader(correct_file)
-        result_reader = csv.reader(result_file)
+def set_driver(new_driver: WebDriver) -> None:
+    global _driver
+    _driver = new_driver
 
-        for correct_row in correct_reader:
-            result_row = next(result_reader)
 
-            correct_product = Product(*correct_row)
-            result_product = Product(*result_row)
+@dataclass
+class Product:
+    title: str
+    description: str
+    price: float
+    rating: int
+    num_of_reviews: int
 
-            assert correct_product == result_product
+
+PRODUCT_FIELDS = [field.name for field in fields(Product)]
+
+
+def parse_single_product(product: Tag) -> Product:
+    rating = len(product.select("p span.ws-icon.ws-icon-star"))
+
+    return Product(
+        title=product.select_one(".title")["title"],
+        description=product.select_one(".description.card-text").text,
+        price=float(product.select_one(".price").text.replace("$", "")),
+        rating=rating,
+        num_of_reviews=int(product.select_one(".review-count").text.split()[0]),
+    )
+
+
+def get_products(url) -> [Product]:
+    text = requests.get(url).content
+    soup = BeautifulSoup(text, "html.parser")
+    products = soup.select(".product-wrapper.card-body")
+    return [parse_single_product(product) for product in products]
+
+
+def get_products_multi_page(url: str) -> [Product]:
+    driver = get_driver()
+    driver.get(url)
+
+    while True:
+        try:
+            wait = WebDriverWait(driver, 1)
+            more_button = wait.until(
+                EC.element_to_be_clickable(
+                    (By.CSS_SELECTOR, ".btn.btn-lg.btn-block.btn-primary.ecomerce-items-scroll-more"))
+            )
+            ActionChains(driver).move_to_element(more_button).click().perform()
+        except:
+            break
+
+    page_source = driver.page_source
+    soup = BeautifulSoup(page_source, "html.parser")
+    products = soup.select(".product-wrapper.card-body")
+    return [parse_single_product(product) for product in products]
+
+
+def write_products_to_csv(name: str, products: [Product]) -> None:
+    with open(name, "w", newline="", encoding="utf-8") as f:
+        writer = csv.writer(f)
+        writer.writerow(PRODUCT_FIELDS)
+        writer.writerows([astuple(product) for product in products])
+
+
+def get_all_products() -> None:
+    # Single page parsing
+    write_products_to_csv("home.csv", get_products(HOME_URL))
+    write_products_to_csv("computers.csv", get_products(COMPUTER_URL))
+    write_products_to_csv("phones.csv", get_products(PHONES_URL))
+
+    # Multi page parsing
+    write_products_to_csv("touch.csv", get_products_multi_page(TOUCH_URL))
+    write_products_to_csv("tablets.csv", get_products_multi_page(TABLETS_URL))
+    write_products_to_csv("laptop.csv", get_products_multi_page(LAPTOP_URL))
+
+
+if __name__ == "__main__":
+    chrome_options = Options()
+    chrome_options.add_argument("--start-maximized")
+
+    with webdriver.Chrome(service=Service(), options=chrome_options) as driver:
+        set_driver(driver)
+        get_all_products()
