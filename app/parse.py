@@ -52,9 +52,12 @@ PRODUCT_FIELDS = [field.name for field in fields(Product)]
 def parse_single_product(product: Tag) -> Product:
     rating = len(product.select("p span.ws-icon.ws-icon-star"))
 
+    description = product.select_one(".description.card-text").text
+    description = description.replace("\xa0", " ").strip()
+
     return Product(
         title=product.select_one(".title")["title"],
-        description=product.select_one(".description.card-text").text,
+        description=description,
         price=float(product.select_one(".price").text.replace("$", "")),
         rating=rating,
         num_of_reviews=int(
@@ -71,6 +74,7 @@ def get_products(url: str) -> [Product]:
 
 
 def get_products_multi_page(url: str) -> [Product]:
+    driver = get_driver()
     driver.get(url)
 
     while True:
@@ -101,21 +105,30 @@ def write_products_to_csv(name: str, products: [Product]) -> None:
 
 
 def get_all_products() -> None:
-    # Single page parsing
-    write_products_to_csv("home.csv", get_products(HOME_URL))
-    write_products_to_csv("computers.csv", get_products(COMPUTER_URL))
-    write_products_to_csv("phones.csv", get_products(PHONES_URL))
-
-    # Multi page parsing
-    write_products_to_csv("touch.csv", get_products_multi_page(TOUCH_URL))
-    write_products_to_csv("tablets.csv", get_products_multi_page(TABLETS_URL))
-    write_products_to_csv("laptop.csv", get_products_multi_page(LAPTOP_URL))
-
-
-if __name__ == "__main__":
     chrome_options = Options()
     chrome_options.add_argument("--start-maximized")
 
     with webdriver.Chrome(service=Service(), options=chrome_options) as driver:
-        set_driver(driver)
-        get_all_products()
+        set_driver(driver)  # Передаем драйвер в систему
+        # Single page parsing
+        write_products_to_csv("home.csv", get_products(HOME_URL))
+        write_products_to_csv("computers.csv", get_products(COMPUTER_URL))
+        write_products_to_csv("phones.csv", get_products(PHONES_URL))
+
+        # Multi page parsing
+        write_products_to_csv(
+            "touch.csv",
+            get_products_multi_page(TOUCH_URL)
+        )
+        write_products_to_csv(
+            "tablets.csv",
+            get_products_multi_page(TABLETS_URL)
+        )
+        write_products_to_csv(
+            "laptops.csv",
+            get_products_multi_page(LAPTOP_URL)
+        )
+
+
+if __name__ == "__main__":
+    get_all_products()
